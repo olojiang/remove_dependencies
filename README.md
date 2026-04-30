@@ -52,8 +52,9 @@ bash build.sh
 
 `build.sh` 会自动完成三步：
 1. 编译 Swift 源码
-2. 打包为 `DevCleaner.app` 应用包
-3. 启动应用
+2. 生成应用图标并打包为 `DevCleaner.app` 应用包
+3. 安装到 `/Applications/DevCleaner.app`
+4. 启动应用
 
 ### 手动构建
 

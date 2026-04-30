@@ -5,9 +5,15 @@ APP_NAME="DevCleaner"
 BUNDLE_ID="com.devcleaner.app"
 BUILD_DIR=".build/arm64-apple-macosx/debug"
 APP_BUNDLE="${APP_NAME}.app"
+ICON_FILE="DevCleaner.icns"
+ICON_PATH="Resources/${ICON_FILE}"
+INSTALL_DIR="/Applications"
 
 echo "🔨 Building ${APP_NAME}..."
 swift build --product "${APP_NAME}"
+
+echo "🎨 Generating app icon..."
+swift Scripts/generate_app_icon.swift "${ICON_PATH}"
 
 echo "📦 Creating app bundle..."
 rm -rf "${APP_BUNDLE}"
@@ -15,6 +21,7 @@ mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
+cp "${ICON_PATH}" "${APP_BUNDLE}/Contents/Resources/${ICON_FILE}"
 
 cat > "${APP_BUNDLE}/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -29,6 +36,8 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" << PLIST
     <string>${APP_NAME}</string>
     <key>CFBundleDisplayName</key>
     <string>DevCleaner</string>
+    <key>CFBundleIconFile</key>
+    <string>${ICON_FILE}</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -51,6 +60,11 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
+echo "📲 Installing to ${INSTALL_DIR}..."
+rm -rf "${INSTALL_DIR}/${APP_BUNDLE}"
+ditto "${APP_BUNDLE}" "${INSTALL_DIR}/${APP_BUNDLE}"
+
 echo "✅ Build complete: ${APP_BUNDLE}"
+echo "✅ Installed: ${INSTALL_DIR}/${APP_BUNDLE}"
 echo "🚀 Launching..."
-open "${APP_BUNDLE}"
+open "${INSTALL_DIR}/${APP_BUNDLE}"
