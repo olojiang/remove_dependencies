@@ -1,0 +1,4 @@
+.build/
+DevCleaner.app/
+.DS_Store
+*.swp
