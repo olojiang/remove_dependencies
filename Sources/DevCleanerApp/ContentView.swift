@@ -47,7 +47,7 @@ struct ContentView: View {
                 .foregroundStyle(.blue)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("DevCleaner")
+                Text("DevCleaner 纪")
                     .font(.headline)
                 Text("开发依赖清理工具")
                     .font(.caption)

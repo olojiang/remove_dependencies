@@ -1,4 +1,4 @@
-# DevCleaner — 开发依赖清理工具
+# DevCleaner 纪 — 开发依赖清理工具
 
 macOS 原生桌面应用，帮助你批量扫描和清理开发项目中的依赖目录（如 `node_modules`、`.venv`、`dist` 等），释放磁盘空间。
 
@@ -52,8 +52,8 @@ bash build.sh
 
 `build.sh` 会自动完成三步：
 1. 编译 Swift 源码
-2. 生成应用图标并打包为 `DevCleaner.app` 应用包
-3. 安装到 `/Applications/DevCleaner.app`
+2. 生成应用图标并打包为 `DevCleaner 纪.app` 应用包
+3. 安装到 `/Applications/DevCleaner 纪.app`
 4. 启动应用
 
 ### 手动构建
