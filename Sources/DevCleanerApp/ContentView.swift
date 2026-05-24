@@ -37,30 +37,6 @@ struct ContentView: View {
         } message: {
             Text("将当前选中的 \(vm.selectedItemCount) 个目录保存为一个可重复执行的路径集合。")
         }
-        .alert("删除集合", isPresented: $vm.showCollectionDeleteConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                vm.deleteSelectedCollection()
-            }
-        } message: {
-            Text("仅删除集合记录，不会删除磁盘目录。")
-        }
-        .alert("移除集合条目", isPresented: $vm.showCollectionItemsRemoveConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("移除", role: .destructive) {
-                vm.removeSelectedCollectionItems()
-            }
-        } message: {
-            Text("将选中的 \(vm.selectedCollectionItemCount) 个路径从集合中移除，不会删除磁盘目录。")
-        }
-        .alert("按集合删除目录", isPresented: $vm.showCollectionDirectoriesRemoveConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("删除目录", role: .destructive) {
-                Task { await vm.removeSelectedCollectionDirectories() }
-            }
-        } message: {
-            Text("将尝试删除集合中已勾选的 \(vm.selectedCollectionItemCount) 个目录，约 \(vm.formattedSelectedCollectionSize)。不存在的路径会跳过，此操作可重复执行。")
-        }
         .alert("错误", isPresented: .init(
             get: { vm.lastError != nil },
             set: { if !$0 { vm.lastError = nil } }
@@ -502,6 +478,30 @@ private struct CollectionListView: View {
                 collectionDetail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .alert("删除集合", isPresented: $vm.showCollectionDeleteConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                vm.deleteSelectedCollection()
+            }
+        } message: {
+            Text("仅删除集合记录，不会删除磁盘目录。")
+        }
+        .alert("移除集合条目", isPresented: $vm.showCollectionItemsRemoveConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("移除", role: .destructive) {
+                vm.removeSelectedCollectionItems()
+            }
+        } message: {
+            Text("将选中的 \(vm.selectedCollectionItemCount) 个路径从集合中移除，不会删除磁盘目录。")
+        }
+        .alert("按集合删除目录", isPresented: $vm.showCollectionDirectoriesRemoveConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("删除目录", role: .destructive) {
+                Task { await vm.removeSelectedCollectionDirectories() }
+            }
+        } message: {
+            Text("将尝试删除集合中已勾选的 \(vm.selectedCollectionItemCount) 个目录，约 \(vm.formattedSelectedCollectionSize)。不存在的路径会跳过，此操作可重复执行。")
         }
     }
 

@@ -446,6 +446,7 @@ class ScannerViewModel: ObservableObject {
             }
             projects.removeAll { $0.dependencies.isEmpty }
             sizeCache.remove(paths: removedPaths)
+            markRemovedCollectionPaths(removedPaths)
 
             statusMessage = "集合「\(collection.name)」已尝试 \(pathsToRemove.count) 项，删除 \(removed.count) 项"
             AppLogger.shared.info("Collection remove completed: attempted=\(pathsToRemove.count), removed=\(removed.count)")
@@ -467,6 +468,18 @@ class ScannerViewModel: ObservableObject {
 
     private func persistCollections() {
         collectionStore.save(collections)
+    }
+
+    private func markRemovedCollectionPaths(_ removedPaths: Set<String>) {
+        guard !removedPaths.isEmpty,
+              let ci = selectedCollectionIndex()
+        else { return }
+
+        for i in collections[ci].items.indices where removedPaths.contains(collections[ci].items[i].path) {
+            collections[ci].items[i].isSelected = false
+        }
+        collections[ci].updatedAt = Date()
+        persistCollections()
     }
 
     private func defaultCollectionName() -> String {
