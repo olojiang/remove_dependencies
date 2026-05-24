@@ -16,4 +16,15 @@ public struct DependencyCleaner: @unchecked Sendable {
         }
         return removed
     }
+
+    public func remove(paths: [String]) throws -> [URL] {
+        var removed: [URL] = []
+        for path in paths {
+            guard fileManager.fileExists(atPath: path) else { continue }
+            let url = URL(fileURLWithPath: path)
+            try fileManager.removeItem(at: url)
+            removed.append(url)
+        }
+        return removed
+    }
 }

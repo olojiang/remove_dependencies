@@ -28,6 +28,39 @@ struct ContentView: View {
         } message: {
             Text("确定要删除选中的 \(vm.selectedItemCount) 个依赖目录吗？\n将释放约 \(vm.formattedSelectedSize) 空间。\n此操作不可撤销。")
         }
+        .alert("创建收集", isPresented: $vm.showCreateCollectionPrompt) {
+            TextField("收集名称", text: $vm.newCollectionName)
+            Button("取消", role: .cancel) {}
+            Button("创建") {
+                vm.createCollectionFromSelected()
+            }
+        } message: {
+            Text("将当前选中的 \(vm.selectedItemCount) 个目录保存为一个可重复执行的路径集合。")
+        }
+        .alert("删除集合", isPresented: $vm.showCollectionDeleteConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
+                vm.deleteSelectedCollection()
+            }
+        } message: {
+            Text("仅删除集合记录，不会删除磁盘目录。")
+        }
+        .alert("移除集合条目", isPresented: $vm.showCollectionItemsRemoveConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("移除", role: .destructive) {
+                vm.removeSelectedCollectionItems()
+            }
+        } message: {
+            Text("将选中的 \(vm.selectedCollectionItemCount) 个路径从集合中移除，不会删除磁盘目录。")
+        }
+        .alert("按集合删除目录", isPresented: $vm.showCollectionDirectoriesRemoveConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("删除目录", role: .destructive) {
+                Task { await vm.removeSelectedCollectionDirectories() }
+            }
+        } message: {
+            Text("将尝试删除集合中已勾选的 \(vm.selectedCollectionItemCount) 个目录，约 \(vm.formattedSelectedCollectionSize)。不存在的路径会跳过，此操作可重复执行。")
+        }
         .alert("错误", isPresented: .init(
             get: { vm.lastError != nil },
             set: { if !$0 { vm.lastError = nil } }
@@ -35,6 +68,13 @@ struct ContentView: View {
             Button("确定") { vm.lastError = nil }
         } message: {
             Text(vm.lastError ?? "")
+        }
+        .task {
+            await vm.scanRestoredDirectoryIfNeeded()
+        }
+        .sheet(isPresented: $vm.showCollections) {
+            CollectionListView(vm: vm)
+                .frame(minWidth: 900, minHeight: 520)
         }
     }
 
@@ -69,14 +109,21 @@ struct ContentView: View {
                 }
                 .controlSize(.regular)
 
+                Button {
+                    vm.showCollections = true
+                } label: {
+                    Label("集合列表", systemImage: "tray.full")
+                }
+                .controlSize(.regular)
+
                 if !vm.rootPath.isEmpty {
                     Button {
-                        Task { await vm.scan() }
+                        Task { await vm.forceRefresh() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .help("重新扫描")
-                    .disabled(vm.isScanning)
+                    .help("强制刷新：重新扫描并重新计算所有大小")
+                    .disabled(vm.isScanning || vm.isCalculatingSize)
                 }
             }
         }
@@ -258,7 +305,7 @@ struct ContentView: View {
                 .fontWeight(.medium)
                 .frame(width: 80, alignment: .trailing)
 
-            if vm.isCalculatingSize {
+            if vm.isCalculatingSize(for: project) {
                 ProgressView()
                     .controlSize(.small)
                     .frame(width: 16)
@@ -358,6 +405,14 @@ struct ContentView: View {
                         .fontWeight(.medium)
                 }
 
+                Button {
+                    vm.beginCreateCollection()
+                } label: {
+                    Label("收集", systemImage: "plus.rectangle.on.folder")
+                }
+                .disabled(vm.selectedItemCount == 0 || vm.isRemoving)
+                .controlSize(.regular)
+
                 Button(role: .destructive) {
                     vm.confirmRemove()
                 } label: {
@@ -402,6 +457,236 @@ struct ContentView: View {
         case .vendor: return .indigo
         case .dartTool, .pubCache: return .cyan
         case .dotCache: return .gray
+        }
+    }
+
+    private func sizeColor(_ size: Int64) -> Color {
+        if size > 500_000_000 { return .red }
+        if size > 100_000_000 { return .orange }
+        if size > 10_000_000 { return .yellow }
+        return .secondary
+    }
+}
+
+private struct CollectionListView: View {
+    @ObservedObject var vm: ScannerViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "tray.full")
+                    .foregroundStyle(.blue)
+                Text("集合列表")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    vm.showCollections = false
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help("关闭")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.bar)
+
+            Divider()
+
+            HStack(spacing: 0) {
+                collectionSidebar
+                    .frame(width: 260)
+
+                Divider()
+
+                collectionDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var collectionSidebar: some View {
+        VStack(spacing: 0) {
+            if vm.collections.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.quaternary)
+                    Text("暂无集合")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(vm.collections) { collection in
+                            Button {
+                                vm.selectCollection(collection.id)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "folder")
+                                        .foregroundStyle(.blue)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(collection.name)
+                                            .font(.system(.body, design: .rounded))
+                                            .lineLimit(1)
+                                        Text("\(collection.items.count) 个路径")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(collection.id == vm.selectedCollectionID
+                                              ? Color.accentColor.opacity(0.14)
+                                              : Color.clear)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button(role: .destructive) {
+                    vm.confirmDeleteSelectedCollection()
+                } label: {
+                    Label("删除集合", systemImage: "trash")
+                }
+                .disabled(vm.selectedCollection == nil)
+                Spacer()
+            }
+            .padding(10)
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var collectionDetail: some View {
+        VStack(spacing: 0) {
+            if let collection = vm.selectedCollection {
+                collectionToolbar(collection)
+                Divider()
+                collectionItems(collection)
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.quaternary)
+                    Text("选择一个集合查看目录列表")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func collectionToolbar(_ collection: DirectoryCollection) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(collection.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text("已选 \(vm.selectedCollectionItemCount) / \(collection.items.count) 项  \(vm.formattedSelectedCollectionSize)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("全选") {
+                vm.setAllCollectionItems(selected: true)
+            }
+            .controlSize(.small)
+
+            Button("取消全选") {
+                vm.setAllCollectionItems(selected: false)
+            }
+            .controlSize(.small)
+
+            Button(role: .destructive) {
+                vm.confirmRemoveSelectedCollectionItems()
+            } label: {
+                Label("移除条目", systemImage: "minus.circle")
+            }
+            .disabled(vm.selectedCollectionItemCount == 0)
+
+            Button(role: .destructive) {
+                vm.confirmRemoveSelectedCollectionDirectories()
+            } label: {
+                Label("删除目录", systemImage: "trash")
+            }
+            .disabled(vm.selectedCollectionItemCount == 0 || vm.isRemoving)
+            .tint(.red)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func collectionItems(_ collection: DirectoryCollection) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(collection.items) { item in
+                    collectionItemRow(item)
+                    Divider().padding(.leading, 42)
+                }
+            }
+        }
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private func collectionItemRow(_ item: DirectoryCollectionItem) -> some View {
+        let exists = vm.collectionItemExists(item)
+        return HStack(spacing: 10) {
+            Toggle(isOn: Binding(
+                get: { item.isSelected },
+                set: { _ in vm.toggleCollectionItem(item.id) }
+            )) {
+                EmptyView()
+            }
+            .toggleStyle(.checkbox)
+
+            Image(systemName: exists ? "folder.fill" : "folder.badge.questionmark")
+                .foregroundStyle(exists ? .blue : .secondary)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.path)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("\(item.relativePath) · \(item.typeName)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(exists ? "存在" : "不存在")
+                .font(.caption2)
+                .foregroundStyle(exists ? .green : .secondary)
+                .frame(width: 46, alignment: .trailing)
+
+            Text(item.formattedSize)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(sizeColor(item.sizeInBytes))
+                .fontWeight(.medium)
+                .frame(width: 82, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .background(item.isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            vm.toggleCollectionItem(item.id)
         }
     }
 

@@ -297,6 +297,81 @@ TestRunner.run("modificationDate: returns date for existing dir") {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// MARK: - DirectorySizeCache Tests
+// ═══════════════════════════════════════════════════════════════
+print("\n💾 DirectorySizeCache Tests")
+print("─────────────────────────────────")
+
+func makeIsolatedDefaults() -> UserDefaults {
+    let suiteName = "DevCleanerTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return defaults
+}
+
+TestRunner.run("DirectorySizeCache: returns cached size when modification date matches") {
+    let defaults = makeIsolatedDefaults()
+    let cache = DirectorySizeCache(defaults: defaults, storageKey: "sizes")
+    let url = URL(fileURLWithPath: "/tmp/cache-test/node_modules")
+    let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+    cache.store(sizeInBytes: 1234, for: url, modificationDate: date)
+
+    try assertEqual(cache.cachedSize(for: url, modificationDate: date), 1234)
+}
+
+TestRunner.run("DirectorySizeCache: ignores cached size when modification date changes") {
+    let defaults = makeIsolatedDefaults()
+    let cache = DirectorySizeCache(defaults: defaults, storageKey: "sizes")
+    let url = URL(fileURLWithPath: "/tmp/cache-test/node_modules")
+    let oldDate = Date(timeIntervalSince1970: 1_700_000_000)
+    let newDate = Date(timeIntervalSince1970: 1_700_000_001)
+
+    cache.store(sizeInBytes: 1234, for: url, modificationDate: oldDate)
+
+    try assertEqual(cache.cachedSize(for: url, modificationDate: newDate), nil)
+}
+
+TestRunner.run("DirectorySizeCache: remove deletes selected paths") {
+    let defaults = makeIsolatedDefaults()
+    let cache = DirectorySizeCache(defaults: defaults, storageKey: "sizes")
+    let url = URL(fileURLWithPath: "/tmp/cache-test/node_modules")
+    let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+    cache.store(sizeInBytes: 1234, for: url, modificationDate: date)
+    cache.remove(paths: [url.path])
+
+    try assertEqual(cache.cachedSize(for: url, modificationDate: date), nil)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MARK: - DirectoryCollectionStore Tests
+// ═══════════════════════════════════════════════════════════════
+print("\n🗂️ DirectoryCollectionStore Tests")
+print("─────────────────────────────────")
+
+TestRunner.run("DirectoryCollectionStore: saves and loads named path collections") {
+    let defaults = makeIsolatedDefaults()
+    let store = DirectoryCollectionStore(defaults: defaults, storageKey: "collections")
+    let item = DirectoryCollectionItem(
+        path: "/tmp/work/app/node_modules",
+        relativePath: "node_modules",
+        typeName: "node_modules (Node.js)",
+        sizeInBytes: 4096,
+        isSelected: true
+    )
+    let collection = DirectoryCollection(name: "常用清理", items: [item])
+
+    store.save([collection])
+    let loaded = store.load()
+
+    try assertEqual(loaded.count, 1)
+    try assertEqual(loaded.first?.name, "常用清理")
+    try assertEqual(loaded.first?.items.first?.path, "/tmp/work/app/node_modules")
+    try assertEqual(loaded.first?.items.first?.isSelected, true)
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MARK: - DependencyCleaner Tests
 // ═══════════════════════════════════════════════════════════════
 print("\n🧹 DependencyCleaner Tests")
@@ -337,6 +412,21 @@ TestRunner.run("remove: handles nonexistent path gracefully") {
     let cleaner = DependencyCleaner()
     let removed = try cleaner.remove(items: [item])
     try assertTrue(removed.isEmpty)
+}
+
+TestRunner.run("remove(paths): deletes existing paths and skips missing paths") {
+    let tmp = makeTempDir()
+    defer { cleanUp(tmp) }
+
+    let existing = tmp.appendingPathComponent("node_modules")
+    let missing = tmp.appendingPathComponent("dist")
+    try fm.createDirectory(at: existing, withIntermediateDirectories: true)
+
+    let cleaner = DependencyCleaner()
+    let removed = try cleaner.remove(paths: [existing.path, missing.path])
+
+    try assertEqual(removed.map(\.path), [existing.path])
+    try assertFalse(fm.fileExists(atPath: existing.path))
 }
 
 // ═══════════════════════════════════════════════════════════════
