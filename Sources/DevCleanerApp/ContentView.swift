@@ -1,8 +1,10 @@
 import SwiftUI
+import AppKit
 import DevCleanerLib
 
 struct ContentView: View {
     @StateObject private var vm = ScannerViewModel()
+    @State private var flagsChangedMonitor: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,8 +47,43 @@ struct ContentView: View {
         } message: {
             Text(vm.lastError ?? "")
         }
+        .alert("管理员密码", isPresented: $vm.showAdminPasswordPrompt) {
+            SecureField("管理员密码", text: $vm.adminPasswordInput)
+            Button("取消", role: .cancel) {
+                vm.cancelAdminPasswordPrompt()
+            }
+            if vm.hasStoredAdminPassword {
+                Button("删除已保存密码", role: .destructive) {
+                    vm.forgetAdminPassword()
+                }
+            }
+            Button("验证并保存") {
+                Task { await vm.saveAdminPassword() }
+            }
+        } message: {
+            Text(vm.adminPasswordStatusMessage ?? "密码会保存到 macOS 钥匙串；普通删除失败时自动用 sudo 重试。")
+        }
         .task {
             await vm.scanRestoredDirectoryIfNeeded()
+        }
+        .onAppear {
+            if flagsChangedMonitor == nil {
+                flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                    let isShiftPressed = event.modifierFlags
+                        .intersection(.deviceIndependentFlagsMask)
+                        .contains(.shift)
+                    if !isShiftPressed {
+                        vm.finishRangeSelection()
+                    }
+                    return event
+                }
+            }
+        }
+        .onDisappear {
+            if let flagsChangedMonitor {
+                NSEvent.removeMonitor(flagsChangedMonitor)
+                self.flagsChangedMonitor = nil
+            }
         }
         .sheet(isPresented: $vm.showCollections) {
             CollectionListView(vm: vm)
@@ -92,7 +129,31 @@ struct ContentView: View {
                 }
                 .controlSize(.regular)
 
+                Button {
+                    vm.beginAdminPasswordEntry()
+                } label: {
+                    Label("管理员密码", systemImage: vm.hasStoredAdminPassword ? "key.fill" : "key")
+                }
+                .controlSize(.regular)
+                .help("保存到 macOS 钥匙串，用于删除受权限保护的目录")
+
                 if !vm.rootPath.isEmpty {
+                    Button {
+                        vm.expandAllProjects()
+                    } label: {
+                        Image(systemName: "chevron.down.2")
+                    }
+                    .help("展开所有目录")
+                    .disabled(vm.projects.isEmpty || vm.isScanning)
+
+                    Button {
+                        vm.collapseAllProjects()
+                    } label: {
+                        Image(systemName: "chevron.right.2")
+                    }
+                    .help("折叠所有目录")
+                    .disabled(vm.projects.isEmpty || vm.isScanning)
+
                     Button {
                         Task { await vm.forceRefresh() }
                     } label: {
@@ -294,6 +355,9 @@ struct ContentView: View {
         .onTapGesture {
             vm.toggleExpand(project.id)
         }
+        .contextMenu {
+            folderContextMenu(for: project.path)
+        }
     }
 
     private func dependencyRow(project: ProjectInfo, depIndex di: Int) -> some View {
@@ -303,7 +367,11 @@ struct ContentView: View {
 
             Toggle(isOn: Binding(
                 get: { dep.isSelected },
-                set: { _ in vm.toggleDependency(projectID: project.id, depID: dep.id) }
+                set: { _ in vm.toggleDependency(
+                    projectID: project.id,
+                    depID: dep.id,
+                    extendingRange: isShiftPressed
+                ) }
             )) {
                 EmptyView()
             }
@@ -340,7 +408,10 @@ struct ContentView: View {
         .background(dep.isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            vm.toggleDependency(projectID: project.id, depID: dep.id)
+            vm.toggleDependency(projectID: project.id, depID: dep.id, extendingRange: isShiftPressed)
+        }
+        .contextMenu {
+            folderContextMenu(for: dep.path)
         }
     }
 
@@ -442,6 +513,31 @@ struct ContentView: View {
         if size > 10_000_000 { return .yellow }
         return .secondary
     }
+
+    private var isShiftPressed: Bool {
+        NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+    }
+
+    @ViewBuilder
+    private func folderContextMenu(for url: URL) -> some View {
+        Button {
+            vm.copyPath(url)
+        } label: {
+            Label("复制路径", systemImage: "doc.on.doc")
+        }
+
+        Button {
+            vm.openInTerminal(url)
+        } label: {
+            Label("在 Terminal 中打开", systemImage: "terminal")
+        }
+
+        Button {
+            vm.revealInFinder(url)
+        } label: {
+            Label("在 Finder 中定位", systemImage: "finder")
+        }
+    }
 }
 
 private struct CollectionListView: View {
@@ -502,6 +598,22 @@ private struct CollectionListView: View {
             }
         } message: {
             Text("将尝试删除集合中已勾选的 \(vm.selectedCollectionItemCount) 个目录，约 \(vm.formattedSelectedCollectionSize)。不存在的路径会跳过，此操作可重复执行。")
+        }
+        .alert("管理员密码", isPresented: $vm.showAdminPasswordPrompt) {
+            SecureField("管理员密码", text: $vm.adminPasswordInput)
+            Button("取消", role: .cancel) {
+                vm.cancelAdminPasswordPrompt()
+            }
+            if vm.hasStoredAdminPassword {
+                Button("删除已保存密码", role: .destructive) {
+                    vm.forgetAdminPassword()
+                }
+            }
+            Button("验证并保存") {
+                Task { await vm.saveAdminPassword() }
+            }
+        } message: {
+            Text(vm.adminPasswordStatusMessage ?? "密码会保存到 macOS 钥匙串；普通删除失败时自动用 sudo 重试。")
         }
     }
 
@@ -647,7 +759,7 @@ private struct CollectionListView: View {
         return HStack(spacing: 10) {
             Toggle(isOn: Binding(
                 get: { item.isSelected },
-                set: { _ in vm.toggleCollectionItem(item.id) }
+                set: { _ in vm.toggleCollectionItem(item.id, extendingRange: isShiftPressed) }
             )) {
                 EmptyView()
             }
@@ -686,8 +798,15 @@ private struct CollectionListView: View {
         .background(item.isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            vm.toggleCollectionItem(item.id)
+            vm.toggleCollectionItem(item.id, extendingRange: isShiftPressed)
         }
+        .contextMenu {
+            folderContextMenu(for: URL(fileURLWithPath: item.path))
+        }
+    }
+
+    private var isShiftPressed: Bool {
+        NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
     }
 
     private func sizeColor(_ size: Int64) -> Color {
@@ -695,5 +814,26 @@ private struct CollectionListView: View {
         if size > 100_000_000 { return .orange }
         if size > 10_000_000 { return .yellow }
         return .secondary
+    }
+
+    @ViewBuilder
+    private func folderContextMenu(for url: URL) -> some View {
+        Button {
+            vm.copyPath(url)
+        } label: {
+            Label("复制路径", systemImage: "doc.on.doc")
+        }
+
+        Button {
+            vm.openInTerminal(url)
+        } label: {
+            Label("在 Terminal 中打开", systemImage: "terminal")
+        }
+
+        Button {
+            vm.revealInFinder(url)
+        } label: {
+            Label("在 Finder 中定位", systemImage: "finder")
+        }
     }
 }

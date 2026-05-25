@@ -429,6 +429,21 @@ TestRunner.run("remove(paths): deletes existing paths and skips missing paths") 
     try assertFalse(fm.fileExists(atPath: existing.path))
 }
 
+TestRunner.run("removeWithElevatedFallback: deletes normal paths without password") {
+    let tmp = makeTempDir()
+    defer { cleanUp(tmp) }
+
+    let existing = tmp.appendingPathComponent("node_modules")
+    try fm.createDirectory(at: existing, withIntermediateDirectories: true)
+
+    let cleaner = DependencyCleaner()
+    let result = cleaner.removeWithElevatedFallback(paths: [existing.path], password: nil)
+
+    try assertEqual(result.removed.map(\.path), [existing.path])
+    try assertTrue(result.failed.isEmpty)
+    try assertFalse(fm.fileExists(atPath: existing.path))
+}
+
 // ═══════════════════════════════════════════════════════════════
 TestRunner.summary()
 if !TestRunner.allPassed {

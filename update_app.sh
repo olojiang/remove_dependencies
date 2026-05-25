@@ -166,26 +166,13 @@ PLIST
 }
 
 sign_app() {
-    if [[ -z "${CODESIGN_IDENTITY:-}" && -n "${APPLE_CERTIFICATE_ID:-}" ]]; then
-        export CODESIGN_IDENTITY="${APPLE_CERTIFICATE_ID}"
+    if [[ "${NOTARIZE}" == true ]]; then
+        echo "Ad-hoc signing cannot be notarized. Run without --sign." >&2
+        exit 1
     fi
 
-    if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-        echo "🔏 Signing with Developer ID identity: ${CODESIGN_IDENTITY}"
-        local codesign_args=(--force --deep --options runtime --timestamp)
-        if [[ -n "${MAC_CODESIGN_KEYCHAIN:-}" ]]; then
-            codesign_args+=(--keychain "${MAC_CODESIGN_KEYCHAIN}")
-        fi
-        codesign "${codesign_args[@]}" --sign "${CODESIGN_IDENTITY}" "${APP_PATH}"
-    else
-        if [[ "${NOTARIZE}" == true ]]; then
-            echo "Developer ID signing material is required when --sign is used." >&2
-            exit 1
-        fi
-        echo "🔏 Signing with ad-hoc identity"
-        codesign --force --deep --sign - "${APP_PATH}"
-    fi
-
+    echo "🔏 Signing with ad-hoc identity"
+    codesign --force --deep --sign - "${APP_PATH}"
     codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 }
 
@@ -232,11 +219,6 @@ clean_moved_build_cache() {
     mkdir -p ".build"
     printf '%s\n' "${package_root}" > "${stamp_file}"
 }
-
-load_apple_keys
-if [[ -f "${APPLE_KEYS_DIR}/apple_key_metadata.env" || -f "${APPLE_KEYS_DIR}/apple_key_secrets.env" ]]; then
-    prepare_codesign_keychain || true
-fi
 
 clean_moved_build_cache
 
