@@ -6,7 +6,11 @@ final class AdminPasswordStore {
     private let account = NSUserName()
 
     func hasPassword() -> Bool {
-        (try? loadPassword()) != nil
+        var query = baseQuery()
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return status == errSecSuccess
     }
 
     func loadPassword() throws -> String? {

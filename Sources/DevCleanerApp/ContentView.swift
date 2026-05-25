@@ -5,6 +5,7 @@ import DevCleanerLib
 struct ContentView: View {
     @StateObject private var vm = ScannerViewModel()
     @State private var flagsChangedMonitor: Any?
+    @State private var hoveredDependencyID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,6 +110,8 @@ struct ContentView: View {
 
             Spacer()
 
+            scanSummary
+
             HStack(spacing: 8) {
                 Text(vm.rootPath.isEmpty ? "未选择目录" : vm.rootPath)
                     .font(.system(.body, design: .monospaced))
@@ -141,7 +144,9 @@ struct ContentView: View {
                     Button {
                         vm.expandAllProjects()
                     } label: {
-                        Image(systemName: "chevron.down.2")
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 18, height: 18)
                     }
                     .help("展开所有目录")
                     .disabled(vm.projects.isEmpty || vm.isScanning)
@@ -149,7 +154,9 @@ struct ContentView: View {
                     Button {
                         vm.collapseAllProjects()
                     } label: {
-                        Image(systemName: "chevron.right.2")
+                        Image(systemName: "minus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 18, height: 18)
                     }
                     .help("折叠所有目录")
                     .disabled(vm.projects.isEmpty || vm.isScanning)
@@ -167,6 +174,40 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    @ViewBuilder
+    private var scanSummary: some View {
+        if !vm.projects.isEmpty {
+            HStack(spacing: 14) {
+                Label {
+                    Text("全部项目 \(vm.projects.count)")
+                } icon: {
+                    Image(systemName: "folder")
+                }
+
+                Label {
+                    Text("依赖 \(vm.totalDependencyCount)")
+                } icon: {
+                    Image(systemName: "shippingbox")
+                }
+
+                Label {
+                    Text("累计 \(vm.formattedTotalSize)")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(sizeColor(vm.totalSize))
+                } icon: {
+                    Image(systemName: "externaldrive")
+                }
+            }
+            .font(.caption)
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("全部项目 \(vm.projects.count) 个，依赖 \(vm.totalDependencyCount) 个，累计大小 \(vm.formattedTotalSize)")
+        }
     }
 
     // MARK: - Sort Bar
@@ -405,8 +446,11 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .background(dep.isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+        .background(dependencyRowBackground(dep))
         .contentShape(Rectangle())
+        .onHover { isHovered in
+            hoveredDependencyID = isHovered ? dep.id : nil
+        }
         .onTapGesture {
             vm.toggleDependency(projectID: project.id, depID: dep.id, extendingRange: isShiftPressed)
         }
@@ -514,6 +558,16 @@ struct ContentView: View {
         return .secondary
     }
 
+    private func dependencyRowBackground(_ dep: DependencyItem) -> Color {
+        if dep.isSelected {
+            return Color.accentColor.opacity(hoveredDependencyID == dep.id ? 0.14 : 0.08)
+        }
+        if hoveredDependencyID == dep.id {
+            return Color.primary.opacity(0.06)
+        }
+        return Color.clear
+    }
+
     private var isShiftPressed: Bool {
         NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
     }
@@ -542,6 +596,8 @@ struct ContentView: View {
 
 private struct CollectionListView: View {
     @ObservedObject var vm: ScannerViewModel
+    @State private var hoveredCollectionID: UUID?
+    @State private var hoveredCollectionItemID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -653,12 +709,13 @@ private struct CollectionListView: View {
                                 .padding(.vertical, 8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(collection.id == vm.selectedCollectionID
-                                              ? Color.accentColor.opacity(0.14)
-                                              : Color.clear)
+                                        .fill(collectionRowBackground(collection))
                                 )
                             }
                             .buttonStyle(.plain)
+                            .onHover { isHovered in
+                                hoveredCollectionID = isHovered ? collection.id : nil
+                            }
                         }
                     }
                     .padding(8)
@@ -795,8 +852,11 @@ private struct CollectionListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-        .background(item.isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+        .background(collectionItemRowBackground(item))
         .contentShape(Rectangle())
+        .onHover { isHovered in
+            hoveredCollectionItemID = isHovered ? item.id : nil
+        }
         .onTapGesture {
             vm.toggleCollectionItem(item.id, extendingRange: isShiftPressed)
         }
@@ -814,6 +874,26 @@ private struct CollectionListView: View {
         if size > 100_000_000 { return .orange }
         if size > 10_000_000 { return .yellow }
         return .secondary
+    }
+
+    private func collectionRowBackground(_ collection: DirectoryCollection) -> Color {
+        if collection.id == vm.selectedCollectionID {
+            return Color.accentColor.opacity(hoveredCollectionID == collection.id ? 0.20 : 0.14)
+        }
+        if hoveredCollectionID == collection.id {
+            return Color.primary.opacity(0.06)
+        }
+        return Color.clear
+    }
+
+    private func collectionItemRowBackground(_ item: DirectoryCollectionItem) -> Color {
+        if item.isSelected {
+            return Color.accentColor.opacity(hoveredCollectionItemID == item.id ? 0.14 : 0.08)
+        }
+        if hoveredCollectionItemID == item.id {
+            return Color.primary.opacity(0.06)
+        }
+        return Color.clear
     }
 
     @ViewBuilder

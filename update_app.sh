@@ -87,24 +87,12 @@ prepare_codesign_keychain() {
         security list-keychains -d user -s "${keychain_path}" "${keychains[@]}"
     fi
 
-    if ! security find-identity -v -p codesigning "${keychain_path}" | grep -Fq "${APPLE_CERTIFICATE_ID}" \
-        && security find-identity -v -p codesigning | grep -Fq "${APPLE_CERTIFICATE_ID}"; then
-        echo "Developer ID identity already exists in the user keychains; reusing it."
-        export CODESIGN_IDENTITY="${APPLE_CERTIFICATE_ID}"
-        return 0
-    fi
-
     if ! security find-identity -v -p codesigning "${keychain_path}" | grep -Fq "${APPLE_CERTIFICATE_ID}"; then
         if ! security import "${p12_path}" \
             -k "${keychain_path}" \
             -P "${APPLE_CERTIFICATE_PASSWORD}" \
             -T /usr/bin/codesign \
             -T /usr/bin/productsign; then
-            if security find-identity -v -p codesigning | grep -Fq "${APPLE_CERTIFICATE_ID}"; then
-                echo "Developer ID identity already exists in another keychain; reusing it."
-                export CODESIGN_IDENTITY="${APPLE_CERTIFICATE_ID}"
-                return 0
-            fi
             return 1
         fi
     fi
@@ -166,13 +154,31 @@ PLIST
 }
 
 sign_app() {
+    local identity="-"
+
     if [[ "${NOTARIZE}" == true ]]; then
-        echo "Ad-hoc signing cannot be notarized. Run without --sign." >&2
-        exit 1
+        if ! prepare_codesign_keychain; then
+            echo "Missing Developer ID signing materials required for --sign/notarization." >&2
+            exit 1
+        fi
+
+        identity="${CODESIGN_IDENTITY}"
+        echo "🔏 Signing with Developer ID identity: ${identity}"
+        if [[ -n "${MAC_CODESIGN_KEYCHAIN:-}" ]]; then
+            codesign --force --deep --options runtime --timestamp \
+                --keychain "${MAC_CODESIGN_KEYCHAIN}" \
+                --sign "${identity}" \
+                "${APP_PATH}"
+        else
+            codesign --force --deep --options runtime --timestamp \
+                --sign "${identity}" \
+                "${APP_PATH}"
+        fi
+    else
+        echo "🔏 Signing with ad-hoc identity"
+        codesign --force --deep --sign "${identity}" "${APP_PATH}"
     fi
 
-    echo "🔏 Signing with ad-hoc identity"
-    codesign --force --deep --sign - "${APP_PATH}"
     codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 }
 
@@ -221,6 +227,7 @@ clean_moved_build_cache() {
 }
 
 clean_moved_build_cache
+load_apple_keys
 
 echo "🔨 Building ${APP_NAME}..."
 swift build -c release --product "${PRODUCT_NAME}"
